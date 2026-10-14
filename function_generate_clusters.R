@@ -21,6 +21,8 @@ generate_observed_clusters <- function(N, # number of observations in each clust
  
                 event_rate <- p
                 X_overarch <- readRDS(paste("~/scratch/simulated_data/overarching/iter_", iter,".rds", sep=""))
+                # version 2026 - generate intercept once per iteration
+                b0 <- generate_intercept(N_pop = N, prob = p, lp = X_overarch  %*% beta[2:6])
                 x1 <- lapply(1:K, function(k) { rnorm(n = N, mean = mean_x1[k], sd = 1) })
                 out <- lapply(1:K, function(k) {
                         beta[2] <- b_x1[k]
@@ -29,11 +31,12 @@ generate_observed_clusters <- function(N, # number of observations in each clust
                         X <- X_overarch
                         X[,1] <- x1[[k]]
                         colnames(X) <- c("x1", "x2", "x3", "x4", "x5")
-                        lp <- X %*% beta[2:6]
+                        
                         
                         # generate intercept
-                        
-                        b0 <- generate_intercept(N_pop=N, prob=p, lp=lp)
+                        #lp <- X %*% beta[2:6]
+                        # version 2025 
+                        #b0 <- generate_intercept(N_pop=N, prob=p, lp=lp)
                         
                         X <- cbind(rep(1, N), X)
                         
