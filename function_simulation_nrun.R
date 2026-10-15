@@ -47,7 +47,7 @@ iteration_fnc <- function(
   dpop <- clusters[clusters$cluster != 1 , c(columns, "cluster")] # development pop
   
 
-  tpop_dev_index <- readRDS(paste("simulated_data/tpop_dev_index_N_", N,".rds", sep=""))
+  tpop_dev_index <- readRDS(paste("~/simulation/simulated_data/tpop_dev_index_N_", N,".rds", sep=""))
   tpop_dev <- tpop[tpop_dev_index, ]
   tpop_val <- tpop[-tpop_dev_index, ]
   clusters$iter <- iter
