@@ -18,13 +18,20 @@ generate_observed_clusters <- function(N, # number of observations in each clust
                              ) 
 {
   # This function is for generating (number of K) clusters of the heterogeneous populations (observed causes)
+  # for iteration i(ter)
  
                 event_rate <- p
+                # read overarching population for iteration i(ter)
                 X_overarch <- readRDS(paste("~/scratch/simulated_data/overarching/iter_", iter,".rds", sep=""))
-                # version 2026 - generate intercept once per iteration
-                #b0 <- generate_intercept(N_pop = N, prob = p, lp = X_overarch  %*% beta[2:6])
+                # generate intercept for iteration
+                beta[1] <- generate_intercept(N_pop = N, prob = p, lp = X_overarch  %*% beta[2:6])
+                
+                # generate X1 actual observations (total N observations) with mean x1 (subpopulation-wise) and sd 1. Get a list of K subpopulations
                 x1 <- lapply(1:K, function(k) { rnorm(n = N, mean = mean_x1[k], sd = 1) })
                 out <- lapply(1:K, function(k) {
+
+                        # For each subpopulation (cluster) k in K
+
                         beta[2] <- b_x1[k]
                         
                         # generate X
@@ -82,7 +89,7 @@ generate_unobserved_clusters <- function(N, # number of observations in each clu
   # This function is for generating (number of K) clusters of the heterogeneous populations (fixed proxy)
   event_rate <- p
   X_overarch <- readRDS(paste("~/scratch/simulated_data/overarching/iter_", iter,".rds", sep=""))
-  #b0 <- generate_intercept(N_pop = N, prob = p, lp = X_overarch  %*% beta[2:6])
+  beta[1] <- generate_intercept(N_pop = N, prob = p, lp = X_overarch  %*% beta[2:6])
   u1 <- lapply(1:K, function(k) { rnorm(n = N, mean = mean_u1[k], sd = 1) })
   #P <- 5  # total predictors = 5
   out <- lapply(1:K, function(k) {
@@ -140,7 +147,7 @@ generate_proxy_clusters <- function(N, # number of observations in each cluster
   # This function is for generating (number of K) clusters of the heterogeneous populations (fixed proxy)
   event_rate <- p
   X_overarch <- readRDS(paste("~/scratch/simulated_data/overarching/iter_", iter,".rds", sep=""))
-  #b0 <- generate_intercept(N_pop = N, prob = p, lp = X_overarch  %*% beta[2:6])
+  beta[1] <- generate_intercept(N_pop = N, prob = p, lp = X_overarch  %*% beta[2:6])
   u1 <- lapply(1:K, function(k) { rnorm(n = N, mean = mean_u1[k], sd = 1) })
   #P <- 5  # total predictors = 5
   out <- lapply(1:K, function(k) {

@@ -28,17 +28,17 @@ print(paste(Sys.time(), ":", title_txt))
 # generate beta
 set.seed(seed)
 #mean_beta <- 2
-mean_beta <- 1.2
-sd_beta <- 1
-# simulate 5 betas plus 1 intercept (the intercept will be modified for the expected prevalence)
-beta <- rnorm(n = 6, mean = mean_beta, sd = sd_beta)
-
+#mean_beta <- 1.2
+#sd_beta <- 1
+# simulate 5 betas plus 1 intercept with the uniform distribution (the intercept will be modified for the expected prevalence)
+#beta <- rnorm(n = 6, mean = mean_beta, sd = sd_beta)
+beta <- runif(n = 6, min = 0, max = 2)
 ### Generate overarching intercept
 X_list <- lapply(1:n_iter, function(iter) {
     readRDS(paste0("~/scratch/simulated_data/overarching/iter_", iter, ".rds"))
 })
 X <- do.call(rbind, X_list)
-beta[1] <- generate_intercept(N_pop = dim(X)[1], prob = p, X %*% beta[2:6])
+#beta[1] <- generate_intercept(N_pop = dim(X)[1], prob = p, X %*% beta[2:6])
 
 rm(X_list, X)
 
@@ -54,6 +54,7 @@ b_x1 <- sort(rnorm(K, mean = beta[2], sd = tau_beta))
 ### Broadcast sorted beta x1 to be N x K matrix
 b_x1 <- matrix(rep(b_x1,N), nrow = N, byrow = TRUE)
 
+### generate mean of cluster (subpopulation)-wise X1/U1/L1 matrix for KxN matrix, mean 0 and sd tau for covariate shift
 mean_x1 <- matrix(rnorm(K*n_iter, mean=0, sd=tau), ncol = K)
 
 for (iter in 1:n_iter) {

@@ -24,7 +24,7 @@ iteration_fnc <- function(
                     f0="y ~ 1",
                     f1="y ~ x1 + x2 + x3 + x4 + x5",
                     type='c',
-                    seed=1
+                    seed=68250340
 ) { 
   #iter <- 8
   cat(sprintf(paste("\r", as.character(Sys.time()), " : Iteration: %d", sep=""), iter))
@@ -46,7 +46,6 @@ iteration_fnc <- function(
   tpop <- clusters[clusters$cluster == 1, c(columns, "cluster")] # target pop
   dpop <- clusters[clusters$cluster != 1 , c(columns, "cluster")] # development pop
   
-
   tpop_dev_index <- readRDS(paste("~/simulation/simulated_data/tpop_dev_index_N_", N,".rds", sep=""))
   tpop_dev <- tpop[tpop_dev_index, ]
   tpop_val <- tpop[-tpop_dev_index, ]
@@ -62,10 +61,10 @@ iteration_fnc <- function(
   if (structure=='observed') {
     
     # Standard
-    full_model <- glm(as.formula(f1), data=dpop[,columns], family='binomial')
+    #full_model <- glm(as.formula(f1), data=dpop[,columns], family='binomial')
     null_model <- glm(as.formula(f0), data=dpop[,columns], family='binomial')
-    m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
-  
+    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
+    m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
 
     # SIECV
     # Base SIECV model, not used
@@ -134,10 +133,13 @@ iteration_fnc <- function(
     print(paste("Formula GSE2:",f_gse2, sep=" "))
     print(paste("Formula DRW:", f_dr, sep=" "))
   } else if (structure=='unobserved') {
+    
     # Standard
-    full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
+    
+    #full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
     null_model <- glm(as.formula(f0), data=dpop[, columns], family='binomial')
-    m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
+    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
+    m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
 
     # SIECV
     # Base SIECV model, not used
@@ -207,9 +209,10 @@ iteration_fnc <- function(
     print(paste("Formula DRW:", f_dr, sep=" "))
   } else if (structure=='proxy') {
     # Standard
-    full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
+    #full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
     null_model <- glm(as.formula(f0), data=dpop[, columns], family='binomial')
-    m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
+    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
+    m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
 
     # SIECV
     # Base SIECV model, not used
