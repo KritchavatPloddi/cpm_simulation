@@ -24,11 +24,20 @@ iteration_fnc <- function(
                     f0="y ~ 1",
                     f1="y ~ x1 + x2 + x3 + x4 + x5",
                     type='c',
+                    target=1, # kth subpopulation as target population
+                    development=-1, #kth subpopulation as development population, -1 for all others not in target
                     seed=68250340
 ) { 
-  #iter <- 8
+  #  target=10; development=-1; iter=1; type='c'; tau=1; tau_beta=0; tau_sd=0; p=0.2; K=10;  N=1000; structure='unobserved';seed=68250340;f0="y ~ 1";f1="y ~  x2 + x3 + x4 + x5"
+  if (development == -1) {
+    development_type <- "multiple"
+  } else if (development %in% 1:K) {
+    development_type <- "single"
+  }
+  
   cat(sprintf(paste("\r", as.character(Sys.time()), " : Iteration: %d", sep=""), iter))
   flush.console()
+  
   # assign columns
   if (structure=='observed') {
     columns <- c("y", "x1", "x2", "x3", "x4", "x5")
@@ -37,15 +46,23 @@ iteration_fnc <- function(
   } else if (structure=='proxy') {
     columns <- c("y", "l1", "x2", "x3", "x4", "x5")
   }
+  
   # Load data
   iter_filename <- paste("iter", iter, "N", N, "tau", tau, "tau_beta", tau_beta, "tau_sd", tau_sd, "p", p, "K", K, "seed", seed)
   iter_fullpath <- paste("~/scratch/simulated_data/",type,"/",structure, "/", iter_filename, ".rds", sep="")
   print(iter_fullpath)
   clusters <- readRDS(iter_fullpath)
   # set target pop as the first ranked cluster (among 1st, 3rd, 5th cluster)
-  tpop <- clusters[clusters$cluster == 1, c(columns, "cluster")] # target pop
-  dpop <- clusters[clusters$cluster != 1 , c(columns, "cluster")] # development pop
-  
+  print(paste(development_type,"Development population =",development,"Target population = ", target))
+
+  if (development_type == "multiple") {
+    tpop <- clusters[clusters$cluster == target, c(columns, "cluster")] # target pop
+    dpop <- clusters[clusters$cluster != target , c(columns, "cluster")] # development pop
+  } else if (development_type == "single") {
+    tpop <- clusters[clusters$cluster == target, c(columns, "cluster")] # target pop
+    dpop <- clusters[clusters$cluster == development , c(columns, "cluster")] # development pop
+  }
+
   tpop_dev_index <- readRDS(paste("~/simulation/simulated_data/tpop_dev_index_N_", N,".rds", sep=""))
   tpop_dev <- tpop[tpop_dev_index, ]
   tpop_val <- tpop[-tpop_dev_index, ]
@@ -56,384 +73,424 @@ iteration_fnc <- function(
   f1 <- as.formula(f1)
   f0 <- as.formula(f0)
 
-
-  # Fit models
+  # Fit models 0.0001"
   if (structure=='observed') {
-    
+
+    if (development_type == "multiple") {
+      # SIECV
+      # (lambda = 0)
+      iecv0 <- metapred(data = dpop, strata = "cluster", formula = f1, scope = f0, retest = TRUE, estFUN = "glm", family = binomial, perfFUN = "mse",genFUN = "rema.tau")
+      # (lambda = 1)
+      iecv1 <- metapred(data = dpop, strata = "cluster", formula = f1, scope = f0, retest = TRUE, estFUN = "glm", family = binomial, perfFUN = "mse",genFUN = "rema.beta")
+
+      ## Invariant causal prediction
+        # Invariant target prediction (MSE)
+      f_itp1 <- itp(dpop, columns, delta=0.05, valid_split=0.2, method = "mse")
+        # Chi-square likelihood ratio test
+      f_itp2 <- itp(dpop, columns, delta=0.05, valid_split=0.2, method = "lrt")
+        # Residual test (ttest)
+      f_icp1 <- icp_ICP(dpop, columns, delta=0.05, valid_split=0.2,  test='normal')
+        # Residual test (hsic)
+      f_icp2 <- icp_res(dpop, columns, delta=0.05, valid_split=0.2,  method="hsic")
+
+      if (f_itp1 != "no accepted set") {
+        itp1 <- glm(as.formula(f_itp1), data=dpop[, columns], family='binomial')
+      }
+      if (f_itp2 != "no accepted set") {
+        itp2 <- glm(as.formula(f_itp2), data=dpop[, columns], family='binomial')
+      }
+      if (f_icp1 != "no accepted set") {
+        icp1 <- glm(as.formula(f_icp1), data=dpop[, columns], family='binomial')
+      }
+      if (f_icp2 != "no accepted set") {
+        icp2 <- glm(as.formula(f_icp2), data=dpop[, columns], family='binomial')
+      }
+
+      f_iecv0 <- deparse(iecv0$formula)
+      f_iecv1 <- deparse(iecv1$formula)
+    }
+
     # Standard
-    #full_model <- glm(as.formula(f1), data=dpop[,columns], family='binomial')
     null_model <- glm(as.formula(f0), data=dpop[,columns], family='binomial')
-    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
     m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
-
-    # SIECV
-    # Base SIECV model, not used
-    
-    iecv0 <- metapred(data = dpop,
-                      strata = "cluster",
-                      formula = f1, 
-                      scope = f1,
-                      retest = TRUE,
-                      estFUN = "glm",
-                      family = binomial,
-                      perfFUN = "mse",
-                      genFUN = "abs.mean")
-                      
-    iecv1 <- update(iecv0, scope = f0)
-    iecv2 <- update(iecv1, estFUN = "logistfirth", genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 1 )
-    iecv3 <- update(iecv2, genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 1/2 )
-    iecv4 <- update(iecv3, genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 0 )
-
-
-    # Baseline (Bootstrap in tpop)
-    #results_base <- boot_validation(boot_n = 200, data = tpop, f1 = f1)
-    m_base <- glm(f1, data=tpop_dev[, columns], family='binomial')
-
-    # Prunning
-    dpop_csv <- paste(capture.output(write.csv(dpop, row.names = FALSE)), collapse = "\n")
-    f_prunning <- system2(paste(Sys.getenv("HOME"),"/miniconda3/envs/ctl/bin/python", sep=""), 
-                          paste("causal_transfer_learning/prunning.py","x1+x2+x3+x4+x5 y"), 
-                          input=dpop_csv, stdout = TRUE, stderr = NULL)
-    prunning <- glm(f_prunning, data=dpop[, columns], family='binomial')
-    
-    
-    ### Graph Surgery Estimator
-    # Pop for GSE
-    pop <- rbind(mutate(dpop, pop='dpop'), mutate(tpop, pop='tpop'))
-    pop_csv <- paste(capture.output(write.csv(pop,row.names = FALSE)), collapse = "\n")
-
-    # GSE
-    gse1 <- gse(pop_csv = pop_csv, gse_argv = "observed GSE1", type = type)
-    gse2 <- gse(pop_csv = pop_csv, gse_argv = "observed GSE2", type = type)
-    f_gse1 <- gse1$expr[1]
-    f_gse2 <- gse2$expr[1]
-    # Density ratio
-    dr <- drw(dpop, tpop, columns, f1)
-    f_dr <- deparse(dr$formula)
-
-    # get formula
-    
-    f_m1 <- deparse(m1$formula)
-    f_iecv1 <- deparse(iecv1$formula)
-    f_iecv2 <- deparse(iecv2$formula)
-    f_iecv3 <- deparse(iecv3$formula)
-    f_iecv4 <- deparse(iecv4$formula)
-    #f_base
-    
-    print(paste("Formula m1:", f_m1, sep=" "))
-    print(paste("Formula iecv1:", f_iecv1, sep=" "))
-    print(paste("Formula iecv2:", f_iecv2, sep=" "))
-    print(paste("Formula iecv3:", f_iecv3, sep=" "))
-    print(paste("Formula iecv4:", f_iecv4, sep=" "))
-    #print(paste("Formula base:", f_base, sep=" "))
-    print(paste("Formula prunning:", f_prunning, sep=" "))
-    #print(paste("Formula GSE1:", gse1$intervention_conditioning_set[1], sep=" "))
-    #print(paste("Formula GSE2:", gse2$intervention_conditioning_set[1], sep=" "))
-    print(paste("Formula GSE1:",f_gse1, sep=" "))
-    print(paste("Formula GSE2:",f_gse2, sep=" "))
-    print(paste("Formula DRW:", f_dr, sep=" "))
-  } else if (structure=='unobserved') {
-    
-    # Standard
-    
-    #full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
-    null_model <- glm(as.formula(f0), data=dpop[, columns], family='binomial')
-    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
-    m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
-
-    # SIECV
-    # Base SIECV model, not used
-    
-    iecv0 <- metapred(data = dpop,
-                      strata = "cluster",
-                      formula = f1, 
-                      scope = f1,
-                      retest = TRUE,
-                      estFUN = "glm",
-                      family = binomial,
-                      perfFUN = "mse",
-                      genFUN = "abs.mean")
-                      
-    iecv1 <- update(iecv0, scope = f0)
-    iecv2 <- update(iecv1, estFUN = "logistfirth", genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 1 )
-    iecv3 <- update(iecv2, genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 1/2 )
-    iecv4 <- update(iecv3, genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 0 )
-
-
-    # Baseline (Bootstrap in tpop)
-    #results_base <- boot_validation(boot_n = 200, data = tpop, f1 = f1)
-    m_base <- glm(f1, data=tpop_dev[, columns], family='binomial')
-
-    # Prunning
-    dpop_csv <- paste(capture.output(write.csv(dpop, row.names = FALSE)), collapse = "\n")
-    f_prunning <- system2(paste(Sys.getenv("HOME"),"/miniconda3/envs/ctl/bin/python", sep=""), 
-                          paste("causal_transfer_learning/prunning.py","x2+x3+x4+x5 y"), 
-                          input=dpop_csv, stdout = TRUE, stderr = NULL)
-    prunning <- glm(f_prunning, data=dpop[, columns], family='binomial')
-    
-    
-    ### Graph Surgery Estimator
-    # Pop for GSE
-    pop <- rbind(mutate(dpop, pop='dpop'), mutate(tpop, pop='tpop'))
-    pop_csv <- paste(capture.output(write.csv(pop,row.names = FALSE)), collapse = "\n")
-
-    # GSE
-    gse1 <- gse(pop_csv = pop_csv, gse_argv = "unobserved GSE1", type = type)
-    gse2 <- gse(pop_csv = pop_csv, gse_argv = "unobserved GSE2", type = type)
-    f_gse1 <- gse1$expr[1]
-    f_gse2 <- gse2$expr[1]
-    # Density ratio
-    dr <- drw(dpop, tpop, columns, f1)
-    f_dr <- deparse(dr$formula)
-
-    # get formula
-    
-    f_m1 <- deparse(m1$formula)
-    f_iecv1 <- deparse(iecv1$formula)
-    f_iecv2 <- deparse(iecv2$formula)
-    f_iecv3 <- deparse(iecv3$formula)
-    f_iecv4 <- deparse(iecv4$formula)
-    #f_base
-    
-    print(paste("Formula m1:", f_m1, sep=" "))
-    print(paste("Formula iecv1:", f_iecv1, sep=" "))
-    print(paste("Formula iecv2:", f_iecv2, sep=" "))
-    print(paste("Formula iecv3:", f_iecv3, sep=" "))
-    print(paste("Formula iecv4:", f_iecv4, sep=" "))
-    #print(paste("Formula base:", f_base, sep=" "))
-    print(paste("Formula prunning:", f_prunning, sep=" "))
-    #print(paste("Formula GSE1:", gse1$intervention_conditioning_set[1], sep=" "))
-    #print(paste("Formula GSE2:", gse2$intervention_conditioning_set[1], sep=" "))
-    print(paste("Formula GSE1:",f_gse1, sep=" "))
-    print(paste("Formula GSE2:",f_gse2, sep=" "))
-    print(paste("Formula DRW:", f_dr, sep=" "))
-  } else if (structure=='proxy') {
-    # Standard
-    #full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
-    null_model <- glm(as.formula(f0), data=dpop[, columns], family='binomial')
-    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
-    m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
-
-    # SIECV
-    # Base SIECV model, not used
-    
-    iecv0 <- metapred(data = dpop,
-                      strata = "cluster",
-                      formula = f1, 
-                      scope = f1,
-                      retest = TRUE,
-                      estFUN = "glm",
-                      family = binomial,
-                      perfFUN = "mse",
-                      genFUN = "abs.mean")
-                      
-    iecv1 <- update(iecv0, scope = f0)
-    iecv2 <- update(iecv1, estFUN = "logistfirth", genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 1 )
-    iecv3 <- update(iecv2, genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 1/2 )
-    iecv4 <- update(iecv3, genFUN = list("rema", "rema.beta", "rema.tau"), lambda = 0 )
-
-
-    # Baseline (Bootstrap in tpop)
-    #results_base <- boot_validation(boot_n = 200, data = tpop, f1 = f1)
-    m_base <- glm(f1, data=tpop_dev[, columns], family='binomial')
-
-    # Prunning
-    dpop_csv <- paste(capture.output(write.csv(dpop, row.names = FALSE)), collapse = "\n")
-    f_prunning <- system2(paste(Sys.getenv("HOME"),"/miniconda3/envs/ctl/bin/python", sep=""), 
-                          paste("causal_transfer_learning/prunning.py","l1+x2+x3+x4+x5 y"), 
-                          input=dpop_csv, stdout = TRUE, stderr = NULL)
-    prunning <- glm(f_prunning, data=dpop[, columns], family='binomial')
-    
-    
-    ### Graph Surgery Estimator
-    # Pop for GSE
-    pop <- rbind(mutate(dpop, pop='dpop'), mutate(tpop, pop='tpop'))
-    pop_csv <- paste(capture.output(write.csv(pop,row.names = FALSE)), collapse = "\n")
-
-    # GSE
-    gse1 <- gse(pop_csv = pop_csv, gse_argv = "proxy GSE1", type = type)
-    gse2 <- gse(pop_csv = pop_csv, gse_argv = "proxy GSE2", type = type)
-    f_gse1 <- gse1$expr[1]
-    f_gse2 <- gse2$expr[1]
-    # Density ratio
-    dr <- drw(dpop, tpop, columns, f1)
-    f_dr <- deparse(dr$formula)
-
-    # get formula
-    
-    f_m1 <- deparse(m1$formula)
-    f_iecv1 <- deparse(iecv1$formula)
-    f_iecv2 <- deparse(iecv2$formula)
-    f_iecv3 <- deparse(iecv3$formula)
-    f_iecv4 <- deparse(iecv4$formula)
-    #f_base
-    
-    print(paste("Formula m1:", f_m1, sep=" "))
-    print(paste("Formula iecv1:", f_iecv1, sep=" "))
-    print(paste("Formula iecv2:", f_iecv2, sep=" "))
-    print(paste("Formula iecv3:", f_iecv3, sep=" "))
-    print(paste("Formula iecv4:", f_iecv4, sep=" "))
-    #print(paste("Formula base:", f_base, sep=" "))
-    print(paste("Formula prunning:", f_prunning, sep=" "))
-    #print(paste("Formula GSE1:", gse1$intervention_conditioning_set[1], sep=" "))
-    #print(paste("Formula GSE2:", gse2$intervention_conditioning_set[1], sep=" "))
-    print(paste("Formula GSE1:",f_gse1, sep=" "))
-    print(paste("Formula GSE2:",f_gse2, sep=" "))
-    print(paste("Formula DRW:", f_dr, sep=" "))
-  }
   
-  # evaluate in tpop (external validation)
+    if (development_type == 'single' & tau_beta > 0) {
+      # fit logistic regression with external knowledge for predictor outcome shift
+      b1 <-readRDS(paste("~/simulation/simulated_data/b1_tau_beta",tau_beta,".rds", sep="_"))
+      tau_extknowledge <- 0.05
+      b1_extknowledge <- rnorm(1, b1[target], tau_extknowledge)
+      offset_x1 <- b1_extknowledge * dpop$x1
+      m2 <- glm(y ~ x2 + x3 + x4 + x5, data = dpop, family = binomial, offset = offset_x1)
+    }
+
+    ### Graph Surgery Estimator
+    # Pop for GSE
+    pop <- rbind(mutate(dpop, pop='dpop'), mutate(tpop, pop='tpop'))
+    pop_csv <- paste(capture.output(write.csv(pop,row.names = FALSE)), collapse = "\n")
+
+    # GSE
+    if (iter == 1) {
+      gse1 <- gse(N = N, pop_csv = pop_csv, gse_argv = "observed GSE1", type = type, save_image = "T", tau = tau, tau_beta = tau_beta)
+      gse2 <- gse(N = N, pop_csv = pop_csv, gse_argv = "observed GSE2", type = type, save_image = "T", tau = tau, tau_beta = tau_beta)
+    } else {
+      gse1 <- gse(N = N, pop_csv = pop_csv, gse_argv = "observed GSE1", type = type, save_image = "F", tau = tau, tau_beta = tau_beta)
+      gse2 <- gse(N = N, pop_csv = pop_csv, gse_argv = "observed GSE2", type = type, save_image = "F", tau = tau, tau_beta = tau_beta)
+    }
+    f_gse1 <- gse1$expr[1]
+    f_gse2 <- gse2$expr[1]
+    # Density ratio
+    
+    dr <- drw(dpop, tpop, columns, f1)
+    f_dr <- deparse(dr$formula)
+
+    # Baseline (Bootstrap in tpop)
+    results_base <- boot_validation(boot_n = 200, data = tpop, f1 = f1)
+    #m_base <- glm(f1, data=tpop_dev[, columns], family='binomial')
+
+    # get formula
+    
+    f_m1 <- deparse(m1$formula)
+
+    
+  } else if (structure=='unobserved') {
+    if (development_type == "multiple") {
+      # SIECV
+      # (lambda = 0)
+      iecv0 <- metapred(data = dpop, strata = "cluster", formula = f1, scope = f0, retest = TRUE, estFUN = "glm", family = binomial, perfFUN = "mse",genFUN = "rema.tau")
+      # (lambda = 1)
+      iecv1 <- metapred(data = dpop, strata = "cluster", formula = f1, scope = f0, retest = TRUE, estFUN = "glm", family = binomial, perfFUN = "mse",genFUN = "rema.beta")
+
+      ## Invariant causal prediction
+        # Invariant target prediction (MSE)
+      f_itp1 <- itp(dpop, columns, delta=0.05, valid_split=0.2, method = "mse")
+        # Chi-square likelihood ratio test
+      f_itp2 <- itp(dpop, columns, delta=0.05, valid_split=0.2, method = "lrt")
+        # Residual test (ttest)
+      f_icp1 <- icp_ICP(dpop, columns, delta=0.05, valid_split=0.2,  test='normal')
+        # Residual test (hsic)
+      f_icp2 <- icp_res(dpop, columns, delta=0.05, valid_split=0.2,  method="hsic")
+
+      if (f_itp1 != "no accepted set") {
+        itp1 <- glm(as.formula(f_itp1), data=dpop[, columns], family='binomial')
+      }
+      if (f_itp2 != "no accepted set") {
+        itp2 <- glm(as.formula(f_itp2), data=dpop[, columns], family='binomial')
+      }
+      if (f_icp1 != "no accepted set") {
+        icp1 <- glm(as.formula(f_icp1), data=dpop[, columns], family='binomial')
+      }
+      if (f_icp2 != "no accepted set") {
+        icp2 <- glm(as.formula(f_icp2), data=dpop[, columns], family='binomial')
+      }
+    
+      f_iecv0 <- deparse(iecv0$formula)
+      f_iecv1 <- deparse(iecv1$formula)
+
+    }
+    # Standard
+    
+    #full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
+    null_model <- glm(as.formula(f0), data=dpop[, columns], family='binomial')
+    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
+    m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
+
+    ### Graph Surgery Estimator
+    # Pop for GSE
+    pop <- rbind(mutate(dpop, pop='dpop'), mutate(tpop, pop='tpop'))
+    pop_csv <- paste(capture.output(write.csv(pop,row.names = FALSE)), collapse = "\n")
+
+    # GSE
+    if (iter == 1) {
+      gse1 <- gse(N = N, pop_csv = pop_csv, gse_argv = "unobserved GSE1", type = type, save_image = "T", tau = tau, tau_beta = tau_beta)
+      gse2 <- gse(N = N, pop_csv = pop_csv, gse_argv = "unobserved GSE2", type = type, save_image = "T", tau = tau, tau_beta = tau_beta)
+    } else {
+      gse1 <- gse(N = N, pop_csv = pop_csv, gse_argv = "unobserved GSE1", type = type, save_image = "F", tau = tau, tau_beta = tau_beta)
+      gse2 <- gse(N = N, pop_csv = pop_csv, gse_argv = "unobserved GSE2", type = type, save_image = "F", tau = tau, tau_beta = tau_beta)
+    }
+    f_gse1 <- gse1$expr[1]
+    f_gse2 <- gse2$expr[1]
+    # Density ratio
+    dr <- drw(dpop, tpop, columns, f1)
+    f_dr <- deparse(dr$formula)
+
+    # Baseline (Bootstrap in tpop)
+    results_base <- boot_validation(boot_n = 200, data = tpop, f1 = f1)
+    #m_base <- glm(f1, data=tpop_dev[, columns], family='binomial')
+
+    # get formula
+    
+    f_m1 <- deparse(m1$formula)
+
+
+
+  } else if (structure=='proxy') {
+
+    if (development_type == "multiple") {
+      # SIECV
+      # (lambda = 0)
+      iecv0 <- metapred(data = dpop, strata = "cluster", formula = f1, scope = f0, retest = TRUE, estFUN = "glm", family = binomial, perfFUN = "mse",genFUN = "rema.tau")
+      # (lambda = 1)
+      iecv1 <- metapred(data = dpop, strata = "cluster", formula = f1, scope = f0, retest = TRUE, estFUN = "glm", family = binomial, perfFUN = "mse",genFUN = "rema.beta")
+
+      ## Invariant causal prediction
+        # Invariant target prediction (MSE)
+      f_itp1 <- itp(dpop, columns, delta=0.05, valid_split=0.2, method = "mse")
+        # Chi-square likelihood ratio test
+      f_itp2 <- itp(dpop, columns, delta=0.05, valid_split=0.2, method = "lrt")
+        # Residual test (ttest)
+      f_icp1 <- icp_ICP(dpop, columns, delta=0.05, valid_split=0.2,  test='normal')
+        # Residual test (hsic)
+      f_icp2 <- icp_res(dpop, columns, delta=0.05, valid_split=0.2,  method="hsic")
+
+      if (f_itp1 != "no accepted set") {
+        itp1 <- glm(as.formula(f_itp1), data=dpop[, columns], family='binomial')
+      }
+      if (f_itp2 != "no accepted set") {
+        itp2 <- glm(as.formula(f_itp2), data=dpop[, columns], family='binomial')
+      }
+      if (f_icp1 != "no accepted set") {
+        icp1 <- glm(as.formula(f_icp1), data=dpop[, columns], family='binomial')
+      }
+      if (f_icp2 != "no accepted set") {
+        icp2 <- glm(as.formula(f_icp2), data=dpop[, columns], family='binomial')
+      }
+    
+      f_iecv0 <- deparse(iecv0$formula)
+      f_iecv1 <- deparse(iecv1$formula)
+    }
+    # Standard
+    #full_model <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
+    null_model <- glm(as.formula(f0), data=dpop[, columns], family='binomial')
+    #m1 <- stepAIC(full_model, direction='both', scope=list(lower=null_model, upper=full_model), trace=FALSE)
+    m1 <- glm(as.formula(f1), data=dpop[, columns], family='binomial')
+
+
+    ### Graph Surgery Estimator
+    # Pop for GSE
+    pop <- rbind(mutate(dpop, pop='dpop'), mutate(tpop, pop='tpop'))
+    pop_csv <- paste(capture.output(write.csv(pop,row.names = FALSE)), collapse = "\n")
+
+    # GSE
+    if (iter == 1) {
+      gse1 <- gse(N = N, pop_csv = pop_csv, gse_argv = "proxy GSE1", type = type, save_image = "T", tau = tau, tau_beta = tau_beta)
+      gse2 <- gse(N = N, pop_csv = pop_csv, gse_argv = "proxy GSE2", type = type, save_image = "T", tau = tau, tau_beta = tau_beta)
+    } else {
+      gse1 <- gse(N = N, pop_csv = pop_csv, gse_argv = "proxy GSE1", type = type, save_image = "F", tau = tau, tau_beta = tau_beta)
+      gse2 <- gse(N = N, pop_csv = pop_csv, gse_argv = "proxy GSE2", type = type, save_image = "F", tau = tau, tau_beta = tau_beta)
+    }
+    f_gse1 <- gse1$expr[1]
+    f_gse2 <- gse2$expr[1]
+    # Density ratio
+    dr <- drw(dpop, tpop, columns, f1)
+    f_dr <- deparse(dr$formula)
+
+    # Baseline (Bootstrap in tpop)
+    results_base <- boot_validation(boot_n = 200, data = tpop, f1 = f1)
+    #m_base <- glm(f1, data=tpop_dev[, columns], family='binomial')
+    
+    # get formula
+    
+    f_m1 <- deparse(m1$formula)
+  }
+
+  # external validation in tpop
+  if (development_type == "multiple") {
+    results_iecv0 <- ext_validation(model=iecv0, target=tpop)
+    results_iecv1 <- ext_validation(model=iecv1, target=tpop)
+
+    if (f_itp1 != "no accepted set") {
+      results_itp1 <- ext_validation(model=itp1, target=tpop)
+    } else {
+      results_itp1 <- list(auc=NA, brier=NA, citl=NA, cslope=NA)
+    }
+    if (f_itp2 != "no accepted set") {
+      results_itp2 <- ext_validation(model=itp2, target=tpop)
+    } else {
+      results_itp2 <- list(auc=NA, brier=NA, citl=NA, cslope=NA)
+    }
+    if (f_icp1 != "no accepted set") {
+      results_icp1 <- ext_validation(model=icp1, target=tpop)
+    } else {
+      results_icp1 <- list(auc=NA, brier=NA, citl=NA, cslope=NA)
+    }
+    if (f_icp2 != "no accepted set") {
+      results_icp2 <- ext_validation(model=icp2, target=tpop)
+    } else {
+      results_icp2 <- list(auc=NA, brier=NA, citl=NA, cslope=NA)
+    }
+  }  
+
   results_null <- ext_validation(model=null_model, target=tpop)
   results_m1 <- ext_validation(model=m1, target=tpop)
-  #results_iecv <- ext_validation(model=iecv, target=tpop)
-  results_iecv1 <- ext_validation(model=iecv1, target=tpop)
-  results_iecv2 <- ext_validation(model=iecv2, target=tpop)
-  results_iecv3 <- ext_validation(model=iecv3, target=tpop)
-  results_iecv4 <- ext_validation(model=iecv4, target=tpop)
-  results_base <- ext_validation(model=m_base, target=tpop_val)
-  
+
   # Graph surgery
   results_gse1 <- ext_validation_pred(y=tpop$y, y_pred=gse1$predicted_gse)
   results_gse2 <- ext_validation_pred(y=tpop$y, y_pred=gse2$predicted_gse)
-  #results_gse1 <- ext_validation(model=gse1, target=tpop)
-  #results_gse2 <- ext_validation(model=gse2, target=tpop)
-  # Prunning
-  results_prunning <- ext_validation(model=prunning, target=tpop)
+
   # DRW
   results_dr <- ext_validation(model=dr, target=tpop)
-  
-  print(paste("Model_m1, iter", iter, "cslope", results_m1$cslope, paste(round(coef(m1), 3), collapse=","   )))
+
+  if (development_type == 'single' & structure=='observed' & tau_beta > 0) {
+    results_m2 <- ext_validation(model=m2, target=tpop)
+  }
 
 # save predicted files
-  paramname <- paste("iter", iter,"N", N, "tau", tau, "tau_beta", tau_beta, "tau_sd", tau_sd,  "p", p)
+  paramname <- paste("iter", iter,"N", N, "tau", tau, "tau_beta", tau_beta, "tau_sd", tau_sd,  "p", p, "target", target)
 
-  data.frame(
-    iter = iter,
-    observed = tpop$y,
-    predicted_m1 = predict(m1, newdata=tpop, type='response'),
-    predicted_prunning = predict(prunning, newdata=tpop, type='response'),
-    #predicted_iecv = predict(iecv, newdata=tpop, type='response'),
-    predicted_iecv1 = predict(iecv1, newdata=tpop, type='response'),
-    predicted_iecv2 = predict(iecv2, newdata=tpop, type='response'),
-    predicted_iecv3 = predict(iecv3, newdata=tpop, type='response'),
-    predicted_iecv4 = predict(iecv4, newdata=tpop, type='response'),
-    predicted_dr = predict(dr, newdata=tpop, type='response'),
-    predicted_gse1 = gse1$predicted_gse,
-    predicted_gse2 = gse2$predicted_gse
-    #predicted_gse1 = predict(gse1, newdata=tpop, type='response')
-    #predicted_gse2 = predict(gse2, newdata=tpop, type='response')
-  ) %>%
-  saveRDS(paste("~/scratch/simulated_predicted/", type, "/", structure,"/", paramname,".rds", sep=""))
-
+#  data.frame(
+#    iter = iter,
+#    observed = tpop$y,
+#    predicted_m1 = predict(m1, newdata=tpop, type='response'),
+#    predicted_prunning = predict(prunning, newdata=tpop, type='response'),
+#    predicted_iecv0 = predict(iecv0, newdata=tpop, type='response'),
+#    predicted_iecv1 = predict(iecv1, newdata=tpop, type='response'),
+#    predicted_dr = predict(dr, newdata=tpop, type='response'),
+#    predicted_gse1 = gse1$predicted_gse,
+#    predicted_gse2 = gse2$predicted_gse
+#    #predicted_gse1 = predict(gse1, newdata=tpop, type='response')
+#    #predicted_gse2 = predict(gse2, newdata=tpop, type='response')
+#  ) %>%
+#  saveRDS(paste("~/scratch/simulated_predicted/", type, "/", structure,"/", paramname,".rds", sep=""))
+#
   # collect results into a list
+  if (development_type == "multiple") {
+    result <- data.frame(
+      iter = iter,
+      data_path = iter_fullpath,
+      auc_null = results_null$auc,
+      brier_null = results_null$brier,
+      citl_null = results_null$citl,
+      cslope_null = results_null$cslope,
+      auc_m1 = results_m1$auc,
+      brier_m1 = results_m1$brier,
+      citl_m1 = results_m1$citl,
+      cslope_m1 = results_m1$cslope,
+      # IECV
+      auc_iecv0 = results_iecv0$auc,
+      brier_iecv0 = results_iecv0$brier,
+      citl_iecv0 = results_iecv0$citl,
+      cslope_iecv0 = results_iecv0$cslope,
+
+      auc_iecv1 = results_iecv1$auc,
+      brier_iecv1 = results_iecv1$brier,
+      citl_iecv1 = results_iecv1$citl,
+      cslope_iecv1 = results_iecv1$cslope,
+
+      # GSE
+      auc_gse1 = results_gse1$auc,
+      brier_gse1 = results_gse1$brier,
+      citl_gse1 = results_gse1$citl,
+      cslope_gse1 = results_gse1$cslope,  
+      auc_gse2 = results_gse2$auc,
+      brier_gse2 = results_gse2$brier,
+      citl_gse2 = results_gse2$citl,
+      cslope_gse2 = results_gse2$cslope,
+
+
+      auc_base = results_base$auc,
+      brier_base = results_base$brier,
+      citl_base = results_base$citl,
+      cslope_base = results_base$cslope,
+
+      # ICP
+      
+      auc_itp1 = results_itp1$auc,
+      brier_itp1 = results_itp1$brier,
+      citl_itp1 = results_itp1$citl,
+      cslope_itp1 = results_itp1$cslope,
+
+      auc_itp2 = results_itp2$auc,
+      brier_itp2 = results_itp2$brier,
+      citl_itp2 = results_itp2$citl,
+      cslope_itp2 = results_itp2$cslope,
+
+      auc_icp1 = results_icp1$auc,
+      brier_icp1 = results_icp1$brier,
+      citl_icp1 = results_icp1$citl,
+      cslope_icp1 = results_icp1$cslope,
+
+      auc_icp2 = results_icp2$auc,
+      brier_icp2 = results_icp2$brier,
+      citl_icp2 = results_icp2$citl,
+      cslope_icp2 = results_icp2$cslope,
+
+      # DRW
+      auc_dr = results_dr$auc,
+      brier_dr = results_dr$brier,
+      citl_dr = results_dr$citl,
+      cslope_dr = results_dr$cslope,
+      
+
+      f_m1 = as.character(f_m1), 
+      f_iecv0 = f_iecv0, 
+      f_iecv1 = f_iecv1, 
+      f_itp1 = f_itp1,
+      f_itp2 = f_itp2,
+      f_icp1 = f_icp1,
+      f_icp2 = f_icp2,
+      f_gse1 = f_gse1,
+      f_gse2 = f_gse2,
+      f_dr = f_dr
+    )
+  } else if (development_type == 'single') {
+    result <- data.frame(
+      iter = iter,
+      data_path = iter_fullpath,
+      auc_null = results_null$auc,
+      brier_null = results_null$brier,
+      citl_null = results_null$citl,
+      cslope_null = results_null$cslope,
+      auc_m1 = results_m1$auc,
+      brier_m1 = results_m1$brier,
+      citl_m1 = results_m1$citl,
+      cslope_m1 = results_m1$cslope,
+      # GSE
+      auc_gse1 = results_gse1$auc,
+      brier_gse1 = results_gse1$brier,
+      citl_gse1 = results_gse1$citl,
+      cslope_gse1 = results_gse1$cslope,  
+      auc_gse2 = results_gse2$auc,
+      brier_gse2 = results_gse2$brier,
+      citl_gse2 = results_gse2$citl,
+      cslope_gse2 = results_gse2$cslope,
+
+      auc_base = results_base$auc,
+      brier_base = results_base$brier,
+      citl_base = results_base$citl,
+      cslope_base = results_base$cslope,
+
+      # DRW
+      auc_dr = results_dr$auc,
+      brier_dr = results_dr$brier,
+      citl_dr = results_dr$citl,
+      cslope_dr = results_dr$cslope,
   
-  result <- data.frame(
-    iter = iter,
-    data_path = iter_fullpath,
-    auc_null = results_null$auc,
-    brier_null = results_null$brier,
-    citl_null = results_null$citl,
-    cslope_null = results_null$cslope,
-    auc_m1 = results_m1$auc,
-    brier_m1 = results_m1$brier,
-    citl_m1 = results_m1$citl,
-    cslope_m1 = results_m1$cslope,
-    # IECV
-    #auc_iecv = results_iecv$auc,
-    #brier_iecv = results_iecv$brier,
-    #citl_iecv = results_iecv$citl,
-    #cslope_iecv = results_iecv$cslope,
-    auc_iecv1 = results_iecv1$auc,
-    brier_iecv1 = results_iecv1$brier,
-    citl_iecv1 = results_iecv1$citl,
-    cslope_iecv1 = results_iecv1$cslope,
-    auc_iecv2 = results_iecv2$auc,
-    brier_iecv2 = results_iecv2$brier,
-    citl_iecv2 = results_iecv2$citl,
-    cslope_iecv2 = results_iecv2$cslope,
-    auc_iecv3 = results_iecv3$auc,
-    brier_iecv3 = results_iecv3$brier,
-    citl_iecv3 = results_iecv3$citl,
-    cslope_iecv3 = results_iecv3$cslope,
-    auc_iecv4 = results_iecv4$auc,
-    brier_iecv4 = results_iecv4$brier,
-    citl_iecv4 = results_iecv4$citl,
-    cslope_iecv4 = results_iecv4$cslope,
-
-    # GSE
-    auc_gse1 = results_gse1$auc,
-    brier_gse1 = results_gse1$brier,
-    citl_gse1 = results_gse1$citl,
-    cslope_gse1 = results_gse1$cslope,  
-    auc_gse2 = results_gse2$auc,
-    brier_gse2 = results_gse2$brier,
-    citl_gse2 = results_gse2$citl,
-    cslope_gse2 = results_gse2$cslope,
+      f_m1 = as.character(f_m1), 
+      f_gse1 = f_gse1,
+      f_gse2 = f_gse2,
+      f_dr = f_dr
+    )
+  }
 
 
-    auc_base = results_base$auc,
-    brier_base = results_base$brier,
-    citl_base = results_base$citl,
-    cslope_base = results_base$cslope,
+  if (development_type == 'single' & structure=='observed' & tau_beta > 0) {
+    result <- cbind(
+      result,
+      auc_m2 = results_m2$auc,
+      brier_m2 = results_m2$brier,
+      citl_m2 = results_m2$citl,
+      cslope_m2 = results_m2$cslope
+    )
 
-    
-    # prunning
-    auc_prunning = results_prunning$auc,
-    brier_prunning = results_prunning$brier,
-    citl_prunning = results_prunning$citl,
-    cslope_prunning = results_prunning$cslope,
+  }
+#fname_string <- paste("n_iter", n_iter, "N", N, "tau", tau, "tau_beta", tau_beta, "tau_sd", tau_sd, "p", p, "K", K, "seed", seed)
+#folder <- paste("output-multiple/", type, "/", structure,"/", fname_string, sep = "")
+#if (!dir.exists(folder)) {
+#  dir.create(folder)
+#}
+#saveRDS(result, paste(folder, "/", iter,".rds", sep=""))
 
-    # DRW
-    auc_dr = results_dr$auc,
-    brier_dr = results_dr$brier,
-    citl_dr = results_dr$citl,
-    cslope_dr = results_dr$cslope,
-    
-
-    f_m1 = as.character(f_m1), 
-    f_iecv1 = f_iecv1, 
-    f_iecv2 = f_iecv2, 
-    f_iecv3 = f_iecv3, 
-    f_iecv4 = f_iecv4, 
-    #f_base = f_base, 
-    f_prunning = f_prunning,
-    #f_gse1 = gse1$intervention_conditioning_set[1],
-    #f_gse2 = gse2$intervention_conditioning_set[1],
-    f_gse1 = f_gse1,
-    f_gse2 = f_gse2,
-    f_dr = f_dr
-
-    #dpop_mean = mean(dpop$x1),
-    #dpop_sd = sd(dpop$x1),
-    #tpop_mean = mean(tpop$x1),
-    #tpop_sd = sd(tpop$x1)
-  )
-  
-  # combine results and all information and return this each iteration
-  #result <- c(iter = iter, 
-  #            data_path = iter_fullpath,
-  #            result, 
-  #            f_m1 = as.character(f_m1), 
-  #            f_iecv1 = f_iecv1, 
-  #            f_iecv2 = f_iecv2, 
-  #            f_iecv3 = f_iecv3, 
-  #            f_iecv4 = f_iecv4, 
-  #            #f_base = f_base, 
-  #            f_prunning = f_prunning,
-  #            #f_gse1 = gse1$intervention_conditioning_set[1],
-  #            #f_gse2 = gse2$intervention_conditioning_set[1],
-  #            f_gse1 = f_gse1,
-  #            f_gse2 = f_gse2,
-  #            f_dr = f_dr
-  #            )
-fname_string <- paste("n_iter", n_iter, "N", N, "tau", tau, "tau_beta", tau_beta, "tau_sd", tau_sd, "p", p, "K", K, "seed", seed)
-folder <- paste("output-multiple/", type, "/", structure,"/", fname_string, sep = "")
-if (!dir.exists(folder)) {
-  dir.create(folder)
-}
-saveRDS(result, paste(folder, "/", iter,".rds", sep=""))
-
-print(paste("Finish Iter", iter))
+print(paste("\nFinish Iter", iter,"\n"))
   #saveRDS(result, paste("debug/iter_", iter, ".rds", sep=""))
 #  fin_msg <- paste(Sys.time(),"Finish iter", iter)
 #  writeRDS(fin_msg, paste("logs/",type,"/",structure, "/", iter_filename, ".rds", sep=""))
@@ -455,6 +512,8 @@ simulation_nrun_fnc <- function(n_iter,
                                 msg='',
                                 type='c',
                                 seed=1,
+                                target=1,
+                                development=-1,
                                 iters_run=1:n_iter,
                                 cores=cores) {
   #perfFUN = 'mse'
@@ -500,6 +559,8 @@ results_iter <- mclapply(iters_run, iteration_fnc,
                                     f0 = f0,
                                     f1 = f1,
                                     type='c',
+                                    target = target,
+                                    development = development,
                                     seed = seed)
 
     
@@ -523,3 +584,21 @@ perfResults <- do.call(rbind, results_iter)
 
 
 
+## siecv (h) 
+#iecv1 <- metapred(data = dpop, strata = "cluster", scope = f0,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "mse", genFUN = "rema.tau")
+#iecv1.1 <- suppressWarnings(suppressMessages(metapred(data = dpop, strata = "cluster", scope = y ~ x1,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "auc", genFUN = "rema.tau")))
+#iecv1.2 <- suppressWarnings(suppressMessages(metapred(data = dpop, strata = "cluster", scope = y ~ x2,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "auc", genFUN = "rema.tau")))
+#iecv1.3 <- suppressWarnings(suppressMessages(metapred(data = dpop, strata = "cluster", scope = y ~ x3,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "auc", genFUN = "rema.tau")))
+#iecv1.4 <- suppressWarnings(suppressMessages(metapred(data = dpop, strata = "cluster", scope = y ~ x4,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "auc", genFUN = "rema.tau")))
+#iecv1.5 <- suppressWarnings(suppressMessages(metapred(data = dpop, strata = "cluster", scope = y ~ x5,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "auc", genFUN = "rema.tau")))
+#gen_values <- c(gen(iecv1.1), gen(iecv1.2), gen(iecv1.3), gen(iecv1.4),gen(iecv1.5))
+#iecv1 <- list(iecv1.1, iecv1.2, iecv1.3, iecv1.4, iecv1.5)[[which.min(gen_values)]]
+#iecv3 <- suppressWarnings(suppressMessages(metapred(data = dpop, strata = "cluster", scope = f0,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "cal.int", genFUN = "rema.tau")))
+## siecv (h) 
+#iecv4.1 <- metapred(data = dpop, strata = "cluster", scope = y ~ x1,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "cal.slope", genFUN = "rema.tau")
+#iecv4.2 <- metapred(data = dpop, strata = "cluster", scope = y ~ x2,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "cal.slope", genFUN = "rema.tau")
+#iecv4.3 <- metapred(data = dpop, strata = "cluster", scope = y ~ x3,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "cal.slope", genFUN = "rema.tau")
+#iecv4.4 <- metapred(data = dpop, strata = "cluster", scope = y ~ x4,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "cal.slope", genFUN = "rema.tau")
+#iecv4.5 <- metapred(data = dpop, strata = "cluster", scope = y ~ x5,formula = f1,retest = TRUE,estFUN = "glm",family = binomial,perfFUN = "cal.slope", genFUN = "rema.tau")
+#gen_values <- c(gen(iecv4.1), gen(iecv4.2), gen(iecv4.3), gen(iecv4.4),gen(iecv4.5))
+#iecv4 <- list(iecv4.1, iecv4.2, iecv4.3, iecv4.4, iecv4.5)[[which.min(gen_values)]]

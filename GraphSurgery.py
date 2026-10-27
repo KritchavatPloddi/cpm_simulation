@@ -66,6 +66,7 @@ class GraphSurgeryClassifier(BaseEstimator, ClassifierMixin):
         self.conditioning_set = None
         self.failed = None
         self.cpt = None
+        self.failed = None
     
     def getSupersets(self, V, Y):
         """
@@ -402,7 +403,9 @@ class GraphSurgeryClassifier(BaseEstimator, ClassifierMixin):
                         # if we get a hedge, continue to the next conditioning set
                         continue
                 # Run UQ algorithm 1
+                
                 X_list, Y_list = self.UQ(M, self.target, Z, self.G_bar_Y)
+                
                 # Add Y to X list and remove Y from Y_list
                 Y_list.remove(self.target)
                 X_list = X_list + [self.target]

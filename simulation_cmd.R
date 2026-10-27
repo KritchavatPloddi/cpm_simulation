@@ -26,6 +26,8 @@ seed <- get_arg("seed", 68250340)
 cores <- get_arg("cores", 1)
 dpop_num <- get_arg("dpop_num", 9)
 run_all <- get_arg("run_all", 1)
+target <- get_arg("target", 1)
+development <- get_arg("development", -1)
 
 if (structure == "observed") {
   f1 <- "y ~ x1 + x2 + x3 + x4 + x5"
@@ -38,12 +40,13 @@ f0 <- "y ~ 1"
 
 title_txt <- list(n_iter = n_iter, N = N, tau = tau, tau_beta = tau_beta, tau_sd = tau_sd, p = p, K = K, type = type, seed = seed)
 title_txt_string <- paste("n_iter =", title_txt$n_iter, ", N =", title_txt$N, "\ntau =", title_txt$tau, ", tau_beta =", title_txt$tau_beta,  ", tau_sd =", title_txt$tau_sd, ", p =", title_txt$p, ", K =", title_txt$K, ", type =", title_txt$type, ", seed =", title_txt$seed)
-fname_string <- paste("n_iter", title_txt$n_iter, "N", title_txt$N, "tau", title_txt$tau, "tau_beta", title_txt$tau_beta, "tau_sd", title_txt$tau_sd, "p", title_txt$p, "K", title_txt$K, "seed", title_txt$seed)
+fname_string <- paste("n_iter", title_txt$n_iter, "N", title_txt$N, "tau", title_txt$tau, "tau_beta", title_txt$tau_beta, "tau_sd", title_txt$tau_sd, "p", title_txt$p, "K", title_txt$K,  "seed", title_txt$seed)
 
 
 # Print all arguments
 cat(paste("n_iter =", title_txt$n_iter, ", N =", title_txt$N, ", tau =", title_txt$tau, ", tau_beta =", title_txt$tau_beta,  ", tau_sd =", title_txt$tau_sd, ", p =", title_txt$p, ", K =", title_txt$K, ", type =", title_txt$type, ", seed =", title_txt$seed, '\n'))
 cat(paste("num dpop =", dpop_num))
+cat(paste("target pop =", target))
 
 if (run_all == 1) {
   iters_run <- 1:n_iter
@@ -57,8 +60,6 @@ if (run_all == 1) {
   cat(paste("\nrunning iters", paste(iters_run, collapse=",") ,"\n"))
 }
 
-
-
 if (dpop_num == 9) {
   results <- simulation_nrun_fnc(n_iter = n_iter, N = N, K = K,
                                 structure = structure,
@@ -71,36 +72,22 @@ if (dpop_num == 9) {
                                 perfFUN = 'mse',
                                 save_data = FALSE,
                                 seed = seed,
+                                target = target,
+                                development = development,
                                 iters_run = iters_run,
                                 cores = cores)
-if (run_all == 1) {
-  write_message <- paste(Sys.time(), ": Writing to", paste("output-multiple/", type, "/", structure, "/", fname_string, ".csv\n", sep = ""))
-  cat(write_message)
-  write.csv(results, paste("output-multiple/", type, "/", structure,"/", fname_string, ".csv", sep = ""), row.names = FALSE)
-}
-} else if (dpop_num == 1) {
-  results <- simulation_nrun_fnc_2pop(n_iter = n_iter, N = N, K = K,
-                                structure = structure,
-                                tau = tau,
-                                tau_beta = tau_beta,
-                                tau_sd = tau_sd,
-                                p = p,
-                                f1 = f1,
-                                f0 = f0,
-                                perfFUN = 'mse',
-                                save_data = FALSE,
-                                seed = seed,
-                                iters_run = iters_run,
-                                cores = cores)
-if (run_all == 1) {
-  write_message <- paste(Sys.time(), ": Writing to", paste("output-single/", type, "/", structure, "/", fname_string, ".csv\n", sep = ""))
-  cat(write_message)
-  write.csv(results, paste("output-single/", type, "/", structure,"/", fname_string, ".csv", sep = ""), row.names = FALSE)
-}
+  if (run_all == 1) {
+    write_message <- paste(Sys.time(), ": Writing to", paste("output-multiple/", type, "/", structure, "/", fname_string, ".csv\n", sep = ""))
+    cat(write_message)
+    write.csv(results, paste("output-multiple/", type, "/", structure,"/", fname_string, ".csv", sep = ""), row.names = FALSE)
+  }
 }
 
 end_timestamp <- Sys.time()
 end_message <- paste(end_timestamp,": Simulation ended \n")
-time_message <- paste("Total time:", as.character(end_timestamp-start_timestamp))
+#time_message <- paste("Total time:", as.character(end_timestamp-start_timestamp))
+
 cat(end_message)
-cat(time_message)
+
+total_time <- difftime(end_timestamp, start_timestamp, units = "mins")
+cat(paste("Total time:", round(total_time, 2), "minutes"))
